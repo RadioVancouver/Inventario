@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Lectura, Búsqueda, Modificación y Agregado en Archivo Excel</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    </head>
+    <body>
+        <h1>Lectura, Búsqueda, Modificación y Agregado en Archivo Excel</h1>
+        <input type="file" id="input-excel" accept=".xlsx, .xls" />
+        <button onclick="leerExcel()">Cargar Excel</button>
+        
+        <div>
+            <h2>Búsqueda por Ubicación</h2>
+            <input type="text" id="busqueda" placeholder="Escribe la ubicación" />
+            <button onclick="buscarPorUbicacion()">Buscar</button>
+        </div>
+
+        <div id="lista-resultados">
+            <!-- Aquí se mostrarán los resultados de la búsqueda en una tabla -->
+        </div>
+
+        <div id="formulario-modificar" style="display: none;">
+            <h2>Modificar Información</h2>
+            <div id="campos-modificar">
+                <!-- Aquí se generarán automáticamente los campos según los datos encontrados -->
+            </div>
+            <button onclick="guardarCambios()">Guardar Cambios</button>
+        </div>
+
+        <div id="formulario-agregar">
+            <h2>Agregar Nueva Información</h2>
+            <div id="campos-formulario">
+                <!-- Aquí se generarán automáticamente los campos según las cabeceras -->
+            </div>
+            <button onclick="agregarFila()">Agregar Fila</button>
+        </div>
+
+        <div>
+            <h2>Guardar los Cambios en el Archivo Excel</h2>
+            <button onclick="guardarExcel()">Guardar Archivo Excel</button>
+        </div>
+
+        <script>
+            let jsonData = []; // Variable global para almacenar los datos del archivo Excel
+            let cabeceras = []; // Variable para almacenar las cabeceras
+            let contador = 0; // Contador para autoincrementar el campo N°
+            let filaSeleccionada = -1; // Índice de la fila seleccionada para modificar
+
+            function leerExcel() {
+                const input = document.getElementById('input-excel');
+                const camposFormulario = document.getElementById('campos-formulario');
+
+                if (input.files.length === 0) {
+                    alert('Por favor, selecciona un archivo Excel.');
+                    return;
+                }
+
+                const file = input.files[0];
+                const reader = new FileReader();
+
+                reader.onload = function(e) {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0]; // Usamos la primera hoja
+                    const worksheet = workbook.Sheets[sheetName];
+                    
+                    // Convertir a JSON y obtener las cabeceras
+                    jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    cabeceras = jsonData[0]; // Las cabeceras están en la primera fila
+
+                    // Buscar la columna "N°" para iniciar el contador
+                    const indiceNumero = cabeceras.indexOf("N°");
+                    if (indiceNumero !== -1) {
+                        contador = jsonData.length - 1;
+                    }
+
+                    // Generar campos de formulario según las cabeceras (excepto para "N°")
+                    camposFormulario.innerHTML = ''; // Limpiar campos existentes
+                    if (cabeceras && cabeceras.length > 0) {
+                        cabeceras.forEach((header, index) => {
+                            if (header !== "N°") { // Omitir el campo "N°"
+                                camposFormulario.innerHTML += `
+                                    <label for="campo-${index}">${header}:</label>
+                                    <input type="text" id="campo-${index}" placeholder="${header}" />
+                                    <br />
+                                `;
+                            }
+                        });
+                    } else {
+                        alert("No se encontraron cabeceras en el archivo Excel.");
+                    }
+                };
+
+                reader.readAsArrayBuffer(file);
+            }
+
+            function buscarPorUbicacion() {
+                const busqueda = document.getElementById('busqueda').value.toLowerCase();
+                const listaResultados = document.getElementById('lista-resultados');
+                const formularioModificar = document.getElementById('formulario-modificar');
+
+                if (!busqueda) {
+                    alert('Por favor, ingresa una ubicación para buscar.');
+                    return;
+                }
+
+                // Buscar en los datos cargados
+                const resultados = jsonData.filter((row, index) => 
+                    row.some((cell, cellIndex) => 
+                        cabeceras[cellIndex].toLowerCase().includes("ubicación") && 
+                        String(cell).toLowerCase().includes(busqueda)
+                    )
+                );
+
+                // Mostrar los resultados en una tabla
+                listaResultados.innerHTML = '<h2>Resultados de la Búsqueda</h2>';
+                if (resultados.length > 0) {
+                    let tablaHtml = '<table border="1"><thead><tr>';
+                    cabeceras.forEach(header => {
+                        tablaHtml += `<th>${header}</th>`;
+                    });
+                    tablaHtml += '<th>Acción</th></tr></thead><tbody>';
+
+                    resultados.forEach((row) => {
+                        const numFila = row[cabeceras.indexOf("N°")]; // Obtener el valor de la columna "N°"
+                        tablaHtml += '<tr>';
+                        row.forEach((cell) => {
+                            tablaHtml += `<td>${cell || ''}</td>`;
+                        });
+                        tablaHtml += `<td><button onclick="seleccionarFila(${numFila})">Editar</button></td>`;
+                        tablaHtml += '</tr>';
+                    });
+                    tablaHtml += '</tbody></table>';
+
+                    listaResultados.innerHTML += tablaHtml;
+                } else {
+                    listaResultados.innerHTML += '<p>No se encontraron resultados.</p>';
+                }
+                
+                formularioModificar.style.display = 'none';
+            }
+
+            function seleccionarFila(numeroFila) {
+                const formularioModificar = document.getElementById('formulario-modificar');
+                const camposModificar = document.getElementById('campos-modificar');
+
+                // Encontrar la fila por el número de la columna "N°"
+                filaSeleccionada = jsonData.findIndex(fila => fila[cabeceras.indexOf("N°")] == numeroFila);
+
+                if (filaSeleccionada === -1) {
+                    alert("No se encontró la fila seleccionada.");
+                    return;
+                }
+
+                formularioModificar.style.display = 'block';
+                camposModificar.innerHTML = '';
+
+                // Generar campos para modificar la fila seleccionada
+                cabeceras.forEach((header, colIndex) => {
+                    camposModificar.innerHTML += `
+                        <label for="modificar-${colIndex}">${header}:</label>
+                        <input type="text" id="modificar-${colIndex}" value="${jsonData[filaSeleccionada][colIndex] || ''}" />
+                        <br />
+                    `;
+                });
+            }
+
+            function guardarCambios() {
+                // Guardar los valores modificados en la fila seleccionada
+                cabeceras.forEach((header, colIndex) => {
+                    const nuevoValor = document.getElementById(`modificar-${colIndex}`).value;
+                    jsonData[filaSeleccionada][colIndex] = nuevoValor;
+                });
+
+                alert('Los cambios se han guardado.');
+            }
+
+            function agregarFila() {
+                contador += 1;
+                const nuevaFila = cabeceras.map((header, index) => {
+                    if (header === "N°") {
+                        return contador; // Autoincrementar la columna "N°"
+                    } else {
+                        const valor = document.getElementById(`campo-${index}`).value;
+                        return valor || ''; // Si el valor está vacío, insertar una cadena vacía
+                    }
+                });
+
+                jsonData.push(nuevaFila);
+
+                cabeceras.forEach((header, index) => {
+                    if (header !== "N°") {
+                        document.getElementById(`campo-${index}`).value = '';
+                    }
+                });
+
+                alert('Fila agregada exitosamente.');
+            }
+
+            function guardarExcel() {
+                const nuevoLibro = XLSX.utils.book_new();
+                const nuevaHoja = XLSX.utils.aoa_to_sheet(jsonData);
+                XLSX.utils.book_append_sheet(nuevoLibro, nuevaHoja, "Hoja1");
+                XLSX.writeFile(nuevoLibro, "archivo_actualizado.xlsx");
+                alert('El archivo ha sido guardado y descargado.');
+            }
+        </script>
+    </body>
+</html>
